@@ -1,4 +1,5 @@
 // Util modules
+import * as API from './api.js';
 import * as Enum from './enum.js';
 import * as Msg from './msg.js';
 import * as Util from './util.js';
@@ -43,12 +44,12 @@ export class Client {
 		this.onEvent = onEvent;
 		this.audioPlayer = new AudioPlayer();
 		this.connected = false;
-		this.conns = [];
+		this.rtc = null;
 		this.listeners = [];
+		this.logInterval = null;
 
 		this.videoPlayer = new VideoPlayer(element, () => {
-			const control = this.conns[0];
-			control.send(Msg.reinit());
+			this.rtc.send(Msg.reinit(), 0);
 		});
 
 		this.signal = new Signal((code) => {
@@ -56,10 +57,8 @@ export class Client {
 		});
 
 		this.input = new Input(element, (buf) => {
-			const control = this.conns[0];
-
-			if (control && this.connected)
-				control.send(buf);
+			if (this.connected)
+				this.rtc.send(buf, 0);
 		});
 
 		this.listeners.push(Util.addListener(window, 'beforeunload', () => {
@@ -102,59 +101,56 @@ export class Client {
 		cfg = cfgDefaults(cfg);
 
 		const onRTCCandidate = (candidate) => {
-			this.signal.send(JSON.stringify(candidate));
+			this.signal.send(sessionId, candidate);
 		};
 
 		const onControlOpen = () => {
-			const control = this.conns[0];
-
-			this.signal.close(1000);
 			this.connected = true;
+
+			//XXX required to prevent Parsec managed cloud machines from shutting down
+			this.logInterval = setInterval(() => {
+				API.connectionUpdate({
+					attempt_id: this.signal.getAttemptId(),
+					state_str: 'LSC_EVENTLOOP',
+				});
+			}, 60000);
 
 			this.listeners.push(Util.addListener(document, 'visibilitychange', () => {
 				if (document.hidden) {
 					this.videoPlayer.destroy();
-					control.send(Msg.block());
+					this.rtc.send(Msg.block(), 0);
 
 				} else {
-					control.send(Msg.reinit());
+					this.rtc.send(Msg.reinit(), 0);
 				}
 			}));
 
-			control.send(Msg.config(cfg));
-			control.send(Msg.init());
+			this.rtc.send(Msg.config(cfg), 0);
+			this.rtc.send(Msg.init(), 0);
 
 			this.input.attach();
 			this.onEvent({type: 'connect'});
 		};
 
-		this.conns[0] = new RTC(serverId, this.signal.getAttemptId(), 0, onControlOpen, (event) => {
+		this.rtc = new RTC(serverId, this.signal.getAttemptId(), onRTCCandidate);
+
+		this.rtc.addChannel('control', 0, onControlOpen, (event) => {
 			this._dispatchEvent(event.data);
-		}, onRTCCandidate);
+		});
 
-		this.conns[1] = new RTC(serverId, this.signal.getAttemptId(), 1, null, (event) => {
+		this.rtc.addChannel('video', 1, null, (event) => {
 			this.videoPlayer.push(event.data);
-		}, onRTCCandidate);
+		});
 
-		this.conns[2] = new RTC(serverId, this.signal.getAttemptId(), 2, null, (event) => {
+		this.rtc.addChannel('audio', 2, null, (event) => {
 			this.audioPlayer.queueData(event.data);
-		}, onRTCCandidate);
+		});
 
-		const myCreds = [];
-		for (let i = 0; i < 3; i++)
-			myCreds.push(await this.conns[i].createOffer());
+		const myCreds = await this.rtc.createOffer();
 
-		try {
-			const theirCreds = await this.signal.connect(cfg.app_ss_endpoint, cfg.app_ss_port, sessionId, serverId, myCreds, (candidate) => {
-				this.conns[candidate.slot].setCandidate(candidate);
-			});
-
-			for (let i = 0; i < 3; i++)
-				this.conns[i].start(theirCreds[i]);
-
-		} catch (error) {
-			this.destroy(error.code);
-		}
+		this.signal.connect(cfg.app_ss_endpoint, cfg.app_ss_port, sessionId, serverId, myCreds, (candidate, theirCreds) => {
+			this.rtc.setCandidate(candidate, theirCreds);
+		});
 	}
 
 	destroy(code) {
@@ -165,12 +161,18 @@ export class Client {
 		this.audioPlayer.destroy();
 		this.input.detach();
 
-		if (this.connected)
-			this.conns[0].send(Msg.abort(code));
+		if (this.connected) {
+			clearInterval(this.logInterval);
+			this.rtc.send(Msg.abort(code), 0);
+		}
 
-		for (const conn of this.conns)
-			conn.close();
+		API.connectionUpdate({
+			state_str: 'LSC_EXIT',
+			attempt_id: this.signal.getAttemptId(),
+			exit_code: code,
+		});
 
+		this.rtc.close();
 		this.connected = false;
 		this.onEvent({type: 'exit', code});
 	}

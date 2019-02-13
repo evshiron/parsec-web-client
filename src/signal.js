@@ -18,58 +18,64 @@ export class Signal {
 	constructor(onFatal) {
 		this.onFatal = onFatal;
 		this.attemptId = createAttemptId();
+		this.theirCreds = null;
 		this.ws = null;
+		this.interval = null;
 	}
 
 	connect(host, port, sessionId, serverId, creds, onCandidate) {
-		return new Promise((resolve, reject) => {
-			this.ws = new WebSocket(`wss://${host}:${port}/connection/${this.attemptId}?session=${sessionId}`);
+		this.ws = new WebSocket(`wss://${host}:${port}`);
 
-			this.ws.onclose = (event) => {
-				if (event.code !== 1000) {
-					this.onFatal(event.code);
-					reject({type: 'close', code: event.code});
-				}
-			};
+		this.ws.onclose = (event) => {
+			if (event.code !== 1000)
+				this.onFatal(event.code);
+		};
 
-			this.ws.onopen = () => {
-				this.ws.send(JSON.stringify({
-					action: 'connection_init',
-					server_id: serverId,
-					timeout_ms: 30000,
-					mode: 2,
-					creds,
-				}));
-			};
+		this.ws.onopen = () => {
+			this.send(sessionId, {
+				action: 'connection_init',
+				subject: 'server',
+				to: serverId,
+				attempt_id: this.attemptId,
+				timeout_ms: 30000,
+				mode: 2,
+				creds,
+			});
 
-			this.ws.onmessage = (event) => {
-				const msg = JSON.parse(event.data);
+			this.interval = setInterval(() => {
+				this.ws.send('PING');
+			}, 30000);
+		};
 
-				switch (msg.action) {
-					case 'connection_init_response':
-						if (!msg.approved) {
-							this.onFatal(Enum.Warning.Reject);
-							reject(msg);
-						}
+		this.ws.onmessage = (event) => {
+			const msg = JSON.parse(event.data);
 
-						resolve(msg.creds);
+			switch (msg.action) {
+				case 'connection_init_response':
+					if (!msg.approved)
+						this.onFatal(Enum.Warning.Reject);
 
-						break;
+					this.theirCreds = msg.creds;
+					break;
 
-					case 'candidate_exchange':
-						onCandidate(msg);
-						break;
-				}
-			};
-		});
+				case 'candidate_exchange':
+					onCandidate(msg, this.theirCreds);
+					break;
+
+				case 'error':
+					this.onFatal(msg.code);
+					break;
+			}
+		};
 	}
 
 	getAttemptId() {
 		return this.attemptId;
 	}
 
-	send(str) {
-		this.ws.send(str);
+	send(token, json) {
+		json.token = token;
+		this.ws.send(JSON.stringify(json));
 	}
 
 	close(code) {
@@ -77,5 +83,8 @@ export class Signal {
 			this.ws.close(code);
 			this.ws = null;
 		}
+
+		clearInterval(this.interval);
+		this.interval = null;
 	}
 }
