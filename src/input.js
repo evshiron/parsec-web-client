@@ -48,6 +48,11 @@ export class Input {
 	_mouseMovement(event) {
 		if (!this.m) return;
 
+		// edit: let relative mouse only work with locked pointer
+		if (this.mouseRelative && !document.pointerLockElement) {
+			return;
+		}
+
 		let data0 = 0;
 		let x = 0;
 		let y = 0;
@@ -58,8 +63,9 @@ export class Input {
 			y = event.movementY;
 
 		} else {
-			x = clientToServerX(event.clientX, this.m);
-			y = clientToServerY(event.clientY, this.m);
+			// edit: use offset coordinates not client coordinates
+			x = clientToServerX(event.offsetX, this.m);
+			y = clientToServerY(event.offsetY, this.m);
 		}
 
 		this.send(Msg.motion(data0, x, y));
@@ -118,7 +124,9 @@ export class Input {
 	_mouseWheel(event) {
 		event.preventDefault();
 
-		this.send(Msg.mouseWheel(-1 * event.deltaX / 100, -1 * event.deltaY / 100));
+		// edit: make macOS touchpad scrollable by changing 100 to 2, as int32 is used in msg
+		// FIXME: what's the delta when using mouse on macOS or other platforms?
+		this.send(Msg.mouseWheel(-1 * event.deltaX / 2, -1 * event.deltaY / 2));
 	}
 
 	_contextMenu(event) {
@@ -237,7 +245,8 @@ export class Input {
 		this.listeners.push(Util.addListener(this.element, 'mousemove', this._mouseMovement, this));
 		this.listeners.push(Util.addListener(this.element, 'mousedown', this._mouseButton, this));
 		this.listeners.push(Util.addListener(this.element, 'mouseup', this._mouseButton, this));
-		this.listeners.push(Util.addListener(this.element, 'mousewheel', this._mouseWheel, this));
+		// edit: use standard event although there is no difference
+		this.listeners.push(Util.addListener(this.element, 'wheel', this._mouseWheel, this));
 		this.listeners.push(Util.addListener(this.element, 'contextmenu', this._contextMenu, this));
 		this.listeners.push(Util.addListener(document, 'pointerlockchange', this._pointerLock, this));
 		this.listeners.push(Util.addListener(window, 'keydown', this._key, this));

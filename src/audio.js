@@ -1,6 +1,7 @@
 // WASM
-import {importMetaURL} from './wasm/import-meta.js';
+// import {importMetaURL} from './wasm/import-meta.js';
 import opusModule from './wasm/opus.js';
+import opusWasm from './wasm/opus.wasm';
 
 const FRAMES = 960; //the Parsec server will always output 20ms packets at 48khz
 const QUEUED_PACKETS = 2;
@@ -33,7 +34,9 @@ export class AudioPlayer {
 				this.ready = true;
 			},
 
-			locateFile: (path) => importMetaURL() + path,
+			// edit: previously import.meta is used to locate the .wasm,
+			// here we use the webpack way to include a specified file in the build
+			locateFile: () => opusWasm,
 		});
 	}
 

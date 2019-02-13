@@ -5,7 +5,24 @@
 
 The Parsec web client allows you to connect to a Parsec host via Chrome 69+. It is written in vanilla ES2018 and has no development or runtime dependencies.
 
+This fork enables importing and building with webpack.
+
 ## Usage
+
+```js
+// hack for emscripten .wasm to work with webpack
+{
+    test: /\.wasm$/,
+    type: 'javascript/auto',
+    use: [
+        {
+            loader: 'file-loader',
+        },
+    ],
+}
+```
+
+First of all, add rules above to your webpack config to enable `.wasm` loading.
 
 ```js
 import {Client} from './client.js';

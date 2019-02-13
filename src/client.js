@@ -40,13 +40,14 @@ function cfgDefaults(cfg) {
 }
 
 export class Client {
-	constructor(element, onEvent) {
+	// edit: accept additional iceServers and pass them to RTC
+	constructor(element, onEvent, iceServers = []) {
 		this.onEvent = onEvent;
 		this.audioPlayer = new AudioPlayer();
 		this.connected = false;
 		this.rtc = null;
 		this.listeners = [];
-		this.logInterval = null;
+		this.iceServers = iceServers;
 
 		this.videoPlayer = new VideoPlayer(element, () => {
 			this.rtc.send(Msg.reinit(), 0);
@@ -107,14 +108,6 @@ export class Client {
 		const onControlOpen = () => {
 			this.connected = true;
 
-			//XXX required to prevent Parsec managed cloud machines from shutting down
-			this.logInterval = setInterval(() => {
-				API.connectionUpdate({
-					attempt_id: this.signal.getAttemptId(),
-					state_str: 'LSC_EVENTLOOP',
-				});
-			}, 60000);
-
 			this.listeners.push(Util.addListener(document, 'visibilitychange', () => {
 				if (document.hidden) {
 					this.videoPlayer.destroy();
@@ -132,7 +125,7 @@ export class Client {
 			this.onEvent({type: 'connect'});
 		};
 
-		this.rtc = new RTC(serverId, this.signal.getAttemptId(), onRTCCandidate);
+		this.rtc = new RTC(serverId, this.signal.getAttemptId(), onRTCCandidate, this.iceServers);
 
 		this.rtc.addChannel('control', 0, onControlOpen, (event) => {
 			this._dispatchEvent(event.data);

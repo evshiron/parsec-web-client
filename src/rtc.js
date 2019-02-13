@@ -65,7 +65,7 @@ function candidateToCandidateStr(candidate, theirCreds) {
 }
 
 export class RTC {
-	constructor(serverId, attemptId, onCandidate) {
+	constructor(serverId, attemptId, onCandidate, iceServers = []) {
 		this.onCandidate = onCandidate;
 		this.attemptId = attemptId;
 		this.serverId = serverId;
@@ -77,13 +77,17 @@ export class RTC {
 		this.offer = null;
 
 		this.rtc = new RTCPeerConnection({
+			// edit: rename from urls to iceServers
 			iceServers: [
 				{urls: 'stun:stun.parsec.gg:3478'},
+				// edit: pass additional iceServers from Client for TURN support
+				...iceServers,
 			],
 		});
 
 		this.rtc.onicecandidate = (event) => {
 			if (event.candidate) {
+				console.info('candidate', event.candidate);
 				const carray = event.candidate.candidate.replace('candidate:', '').split(' ');
 
 				if (carray[2].toLowerCase() === 'udp') {
@@ -135,12 +139,17 @@ export class RTC {
 	}
 
 	async setCandidate(candidate, theirCreds) {
+		console.log('setCandidate', candidate, theirCreds);
 		if (!this.started) {
 			//this will begin STUN
 			await this.rtc.setLocalDescription(this.offer);
 
 			const sdpStr = credsToSDPStr(theirCreds, this.sdp.a.mid);
-			await this.rtc.setRemoteDescription({type: 'answer', sdp: sdpStr});
+			try {
+				await this.rtc.setRemoteDescription({type: 'answer', sdp: sdpStr});
+			} catch (err) {
+				console.error(err);
+			}
 
 			this.started = true;
 		}
