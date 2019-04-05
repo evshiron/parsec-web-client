@@ -49,9 +49,9 @@ export class Input {
 		if (!this.m) return;
 
 		// edit: let relative mouse only work with locked pointer
-		if (this.mouseRelative && !document.pointerLockElement) {
-			return;
-		}
+		// if (this.mouseRelative && !document.pointerLockElement) {
+		// 	return;
+		// }
 
 		let data0 = 0;
 		let x = 0;
